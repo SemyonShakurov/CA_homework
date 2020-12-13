@@ -1,0 +1,217 @@
+#include <iostream>
+#include <vector>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+
+std::vector<std::vector<bool> > battlefield; //Поле боя
+sem_t empty; // Семафор
+sem_t full;
+int sumCostOfMines1 = 0; // Суммарная стоимость использованных мин государства 1
+int sumCostOfMines2 = 0; // Суммарная стоимость использованных мин государства 2
+int countOfPlayer1 = 0; // Кол-во ценных объектов государства 1
+int countOfPlayer2 = 0; // Кол-во ценных объектов государства 2
+std::string info = ""; // информация для вывода
+bool isOpenForAdd = true;
+
+// Вывод текущего состояния боевого поля в консоль
+void printBattlefield() {
+    for (int i = 0; i <= battlefield.size() * 3; i++) {
+        if (i % 3 == 0) {
+            std::cout << " ";
+            for (int j = 0; j < battlefield[0].size(); j++) {
+                if (j == battlefield[0].size() / 2)
+                    std::cout << "  ";
+                std::cout << "--- ";
+            }
+        }
+        else  {
+            for (int j = 0; j < battlefield[0].size(); j++) {
+                if (j == battlefield[0].size() / 2)
+                    std::cout << "||";
+                if (i % 3 == 2 && battlefield[i / 3][j]) {
+                    std::cout << "| ! ";
+                }
+                else std::cout << "|   ";
+            }
+            std::cout << '|';
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "\n\n";
+}
+
+// Является ли строка s целым числом.
+inline bool isInteger(const std::string & s)
+{
+    if(s.empty() || ((!isdigit(s[0])) && (s[0] != '-') && (s[0] != '+')))
+        return false;
+    
+    char * p;
+    strtol(s.c_str(), &p, 10);
+    
+    return (*p == 0);
+}
+
+// Создание поля боя
+std::vector<std::vector<bool> > getBattlefield(int argc, const char * argv[]) {
+    if (argc != 3) {
+        std::cout << "you need to enter 2 arguments: the width and height of the battlefield" << std::endl;
+        return battlefield;
+    }
+    if (!isInteger(argv[1]) || !isInteger(argv[2])) {
+        std::cout << "Input must be integers" << std::endl;
+        return battlefield;
+    }
+    int width = std::stoi(argv[1]);
+    int height = std::stoi(argv[2]);
+    if (width <= 4 || width > 10 ||
+        height <= 4 || height > 10) {
+        std::cout << "Width and height must be between 5 and 10" << std::endl;
+        return battlefield;
+    }
+    for (int i = 0; i < height; i++) {
+        std::vector<bool> row;
+        for (int j = 0; j < 2 * width; j++) {
+            if (rand() % 2 == 0)
+                row.push_back(true);
+            else row.push_back(false);
+        }
+        battlefield.push_back(row);
+    }
+    return battlefield;
+}
+
+// Возвращает суммарную стоимость ценный объектов, isLeft - сторона государства на поле боя
+// count - количество ценных объектов стороны.
+int getSumAndCount(std::vector<std::vector<bool> > battlefield, bool isLeft) {
+    int sum = 0;
+    if (isLeft) {
+        for (int i = 0; i < battlefield.size(); i++) {
+            for (int j = 0; j < battlefield[0].size() / 2; j++) {
+                if (battlefield[i][j]) {
+                    sum += rand() % 200;
+                    countOfPlayer1++;
+                }
+            }
+        }
+    }
+    else {
+        for (int i = 0; i < battlefield.size(); i++) {
+            for (int j = static_cast<int>(battlefield[0].size()) / 2;
+                 j < battlefield[0].size(); j++) {
+                if (battlefield[i][j]) {
+                    sum += rand() % 200;
+                    countOfPlayer2++;
+                }
+            }
+        }
+    }
+    return sum;
+}
+
+// Атака Тарантерии, param - количество оставшихся объектов.
+void * strikePlayer2(void * args) {
+    int minesCost = rand() % 50 + 50;
+    int x = rand() % battlefield[0].size();
+    int y = rand() % battlefield.size();
+    std::string str2 = std::to_string(x + 1);
+    std::string str3 = ";";
+    std::string str4 = std::to_string(battlefield.size() - y);
+    std::string str5 = ")\n";
+    sem_wait(&full);
+    if (battlefield[y][x]) {
+        battlefield[y][x] = false;
+        countOfPlayer1--;
+        if (countOfPlayer1 == 0 && isOpenForAdd) {
+            info += "Тарантерия уничтожила все вражесикие объекты\n";
+            isOpenForAdd = false;
+        }
+        sumCostOfMines2 += minesCost;
+        std::string str1 = "Тарантерия попадает по ценному объекту (";
+        if (isOpenForAdd)
+            info += str1 + str2 + str3 + str4 + str5;
+    }
+    else {
+        std::string str1 = "Тарантерия промахивается (";
+        if (isOpenForAdd)
+            info += str1 + str2 + str3 + str4 + str5;
+    }
+    sem_post(&empty);
+    return nullptr;
+}
+
+// Атака Анчуарии, param - количество оставшихся объектов.
+void * strikePlayer1(void * args) {
+    int minesCost = rand() % 50 + 50;
+    int x = rand() % battlefield[0].size() / 2 +
+    static_cast<int>(battlefield[0].size() / 2);
+    int y = rand() % battlefield.size();
+    std::string str2 = std::to_string(x + 1);
+    std::string str3 = ";";
+    std::string str4 = std::to_string(battlefield.size() - y);
+    std::string str5 = ")\n";
+    sem_wait(&full);
+    if (battlefield[y][x]) {
+        battlefield[y][x] = false;
+        countOfPlayer2--;
+        if (countOfPlayer2 == 0 && isOpenForAdd) {
+            info += "Анчуария уничтожила все вражесикие объекты\n";
+            isOpenForAdd = false;
+        }
+        sumCostOfMines1 += minesCost;
+        std::string str1 = "Анчуария попадает по ценному объекту (";
+        if (isOpenForAdd)
+            info += str1 + str2 + str3 + str4 + str5;
+    }
+    else {
+        std::string str1 = "Анчуария промахивается (";
+        if (isOpenForAdd)
+            info += str1 + str2 + str3 + str4 + str5;
+    }
+    sem_post(&empty);
+    return nullptr;
+}
+
+// Начало битвы.
+void startBattle() {
+    int sumOfPlayer1 = getSumAndCount(battlefield, true);
+    
+    int sumOfPlayer2 = getSumAndCount(battlefield, false);
+    
+    pthread_t anchuaria;
+    pthread_t tarantheria;
+    sem_init(&empty, 0, 10);
+    sem_init(&full, 0, 0);
+    pthread_create(&anchuaria, nullptr, strikePlayer1, nullptr);
+    pthread_create(&tarantheria, nullptr, strikePlayer2, nullptr);
+    while(countOfPlayer1 != 0 &&
+          countOfPlayer2 != 0 &&
+          sumCostOfMines1 <= sumOfPlayer1 &&
+          sumCostOfMines2 <= sumOfPlayer2) {
+        pthread_create(&anchuaria, nullptr, strikePlayer1, (void*)&countOfPlayer2);
+        pthread_create(&tarantheria, nullptr, strikePlayer2, (void*)&countOfPlayer1);
+        if (info != "") {
+            sleep(2);
+            std::cout << info;
+            printBattlefield();
+            info = "";
+        }
+    }
+    if (sumCostOfMines1 > sumOfPlayer1)
+        std::cout << "Cтоимость потраченных снарядов Анчуарии привысило суммарную стоимость вражеских объектов." << std::endl;
+    else if (sumCostOfMines2 > sumOfPlayer2)
+        std::cout << "Cтоимость потраченных снарядов Тарантерии привысило суммарную стоимость вражеских объектов." << std::endl;
+}
+
+int main(int argc, const char * argv[]) {
+    setlocale(LC_ALL, "Russian");
+    battlefield = getBattlefield(argc, argv);
+    if (battlefield.size() == 0) return 0;
+    std::cout << "Ниже показано поле боя." << std::endl;
+    std::cout << "Слева территория Анчуарии, справа - Тарантерии." << std::endl;
+    std::cout << "Восклицательным знаком показаны ценные объекты." << std::endl;
+    printBattlefield();
+    startBattle();
+    return 0;
+}
